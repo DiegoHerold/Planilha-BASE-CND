@@ -1,37 +1,41 @@
-import express from 'express'
-import multer from 'multer'
-import cors from 'cors'
-import { processFiles } from './processController.js'
+import path from 'path'
+import XLSX from 'xlsx'
+import { loadConferencia } from './helpers/loadConferencia.js'
+import { atualizarTodosDocumentos } from './helpers/atualizarTodosDocumentos.js'
+import { distribuirPorGrupo } from './helpers/distribuirPorGrupo.js'
+import { preencherResponsaveis } from './helpers/preencherResponsaveis.js'
+import { preencherEmails } from './helpers/preencherEmails.js'
+import { aplicarPoliticasFinais } from './helpers/aplicarPoliticasFinais.js'
 
-const app = express()
-const upload = multer({ dest: 'uploads/' })
+export async function processFiles(conferenciaPath, matrizPath, outputPath = './output/resultado.xlsm') {
+  try {
+    const linhas = loadConferencia(conferenciaPath)
 
-app.use(cors())
+    const basePath = path.resolve('./src/data/Planilha BASE.xlsm')
+    const workbookBase = XLSX.readFile(basePath, { bookVBA: true })
 
-app.post(
-  '/upload',
-  upload.fields([
-    { name: 'conferencia', maxCount: 1 },
-    { name: 'matriz', maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      const conferenciaFile = req.files['conferencia']?.[0]
-      const matrizFile = req.files['matriz']?.[0]
+    const sheet = workbookBase.Sheets['Todos os Documentos']
+    const cabecalho = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] || []
 
-      if (!conferenciaFile || !matrizFile) {
-        return res.status(400).json({ error: 'Arquivos obrigatórios não enviados.' })
-      }
+    atualizarTodosDocumentos(workbookBase, linhas, cabecalho)
+    preencherResponsaveis(workbookBase, matrizPath)
+    preencherEmails(workbookBase)
 
-      const outputPath = await processFiles(conferenciaFile.path, matrizFile.path)
-      res.download(outputPath)
-    } catch (error) {
-      console.error('Erro no processamento:', error)
-      res.status(500).json({ error: 'Erro ao processar as planilhas.' })
+    const sheetTodosAtualizado = workbookBase.Sheets['Todos os Documentos']
+    const dadosAtualizados = XLSX.utils.sheet_to_json(sheetTodosAtualizado, { header: 1 }).slice(1)
+
+    distribuirPorGrupo(workbookBase, dadosAtualizados)
+    aplicarPoliticasFinais(workbookBase)
+
+    let finalPath = path.resolve(outputPath)
+    if (!finalPath.toLowerCase().endsWith('.xlsm')) {
+      finalPath = finalPath.replace(/\.\w+$/, '.xlsm')
     }
-  }
-)
 
-app.listen(3001, () => {
-  console.log('Servidor rodando em http://localhost:3001')
-})
+    XLSX.writeFile(workbookBase, finalPath, { bookType: 'xlsm', bookVBA: true })
+
+    return finalPath
+  } catch (err) {
+    throw err
+  }
+}
