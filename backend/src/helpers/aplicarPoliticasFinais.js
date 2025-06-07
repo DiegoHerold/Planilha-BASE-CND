@@ -1,6 +1,5 @@
 import XLSX from 'xlsx'
 
-// 🔧 Aqui você define quais grupos serão removidos da aba "Todos os Documentos"
 export const gruposRemoverDoTodos = [
   'JAISE',
   'SERVIÇO EXTRA',
@@ -8,13 +7,13 @@ export const gruposRemoverDoTodos = [
 ]
 
 export function aplicarPoliticasFinais(workbookBase) {
-  const aba = workbookBase.Sheets['Todos os Documentos']
-  const dados = XLSX.utils.sheet_to_json(aba, { header: 1 })
+  const abaTodos = workbookBase.Sheets['Todos os Documentos']
+  const dados = XLSX.utils.sheet_to_json(abaTodos, { header: 1 })
   const cabecalho = dados[0] || []
   const corpo = dados.slice(1)
 
-  const removerHubcount = []
   const manterEmTodos = []
+  const removerHubcount = []
 
   for (const linha of corpo) {
     const grupo = (linha[0] || '').toUpperCase().trim()
@@ -22,29 +21,69 @@ export function aplicarPoliticasFinais(workbookBase) {
 
     if (!responsavel) {
       removerHubcount.push(linha)
-      continue
+    } else if (!gruposRemoverDoTodos.includes(grupo)) {
+      manterEmTodos.push(linha)
     }
-
-    if (gruposRemoverDoTodos.includes(grupo)) {
-      // ← Remoção condicional com base na lista acima
-      continue
-    }
-
-    manterEmTodos.push(linha)
   }
 
-  // Atualiza aba "Todos os Documentos" com os que permanecem
-  workbookBase.Sheets['Todos os Documentos'] = XLSX.utils.aoa_to_sheet([
-    cabecalho,
-    ...manterEmTodos
-  ])
+  const colCount = cabecalho.length
 
-  // Atualiza ou cria aba "REMOVER HUBCOUNT"
+  // Limpa apenas os dados (mantém o cabeçalho) na aba Todos os Documentos
+  for (let r = 1; r < 1000; r++) {
+    for (let c = 0; c < colCount; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      delete abaTodos[addr]
+    }
+  }
+
+  // Reinsere os dados filtrados
+  manterEmTodos.forEach((linha, i) => {
+    for (let j = 0; j < colCount; j++) {
+      const addr = XLSX.utils.encode_cell({ r: i + 1, c: j })
+      abaTodos[addr] = { t: 's', v: linha[j] ?? '' }
+    }
+  })
+
+  abaTodos['!ref'] = XLSX.utils.encode_range({
+    s: { r: 0, c: 0 },
+    e: { r: manterEmTodos.length + 1, c: colCount - 1 }
+  })
+
+  // Atualiza ou cria aba REMOVER HUBCOUNT
   const abaRemover = workbookBase.Sheets['REMOVER HUBCOUNT']
-  const antiga = abaRemover
+  const linhasAntigas = abaRemover
     ? XLSX.utils.sheet_to_json(abaRemover, { header: 1 }).slice(1)
     : []
 
-  const novaAbaRemover = [cabecalho, ...antiga, ...removerHubcount]
-  workbookBase.Sheets['REMOVER HUBCOUNT'] = XLSX.utils.aoa_to_sheet(novaAbaRemover)
+  const nova = [...linhasAntigas, ...removerHubcount]
+
+  const novaRef = {
+    s: { r: 0, c: 0 },
+    e: { r: nova.length + 1, c: colCount - 1 }
+  }
+
+  const novaSheet = abaRemover || {}
+  for (let r = 1; r < 1000; r++) {
+    for (let c = 0; c < colCount; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      delete novaSheet[addr]
+    }
+  }
+
+  // Cabeçalho
+  cabecalho.forEach((v, j) => {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: j })
+    novaSheet[addr] = { t: 's', v }
+  })
+
+  // Dados
+  nova.forEach((linha, i) => {
+    for (let j = 0; j < colCount; j++) {
+      const addr = XLSX.utils.encode_cell({ r: i + 1, c: j })
+      novaSheet[addr] = { t: 's', v: linha[j] ?? '' }
+    }
+  })
+
+  novaSheet['!ref'] = XLSX.utils.encode_range(novaRef)
+  workbookBase.Sheets['REMOVER HUBCOUNT'] = novaSheet
 }

@@ -16,14 +16,13 @@ export function preencherEmails(workbookBase) {
 
   const aba = workbookBase.Sheets['Todos os Documentos']
   const data = XLSX.utils.sheet_to_json(aba, { header: 1 })
-  const cabecalho = data[0]
   const corpo = data.slice(1)
 
-  const atualizado = corpo.map(linha => {
+  corpo.forEach((linha, i) => {
     const responsavel = String(linha[3] || '').trim().toUpperCase()
-    if (mapa.has(responsavel)) linha[4] = mapa.get(responsavel)
-    return linha
+    if (mapa.has(responsavel)) {
+      const cellAddr = XLSX.utils.encode_cell({ r: i + 1, c: 4 }) // Linha +1 por causa do cabeçalho
+      aba[cellAddr] = { t: 's', v: mapa.get(responsavel) }
+    }
   })
-
-  workbookBase.Sheets['Todos os Documentos'] = XLSX.utils.aoa_to_sheet([cabecalho, ...atualizado])
 }
