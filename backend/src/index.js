@@ -1,41 +1,43 @@
+import express from 'express'
+import cors from 'cors'
+import multer from 'multer'
 import path from 'path'
-import XLSX from 'xlsx'
-import { loadConferencia } from './helpers/loadConferencia.js'
-import { atualizarTodosDocumentos } from './helpers/atualizarTodosDocumentos.js'
-import { distribuirPorGrupo } from './helpers/distribuirPorGrupo.js'
-import { preencherResponsaveis } from './helpers/preencherResponsaveis.js'
-import { preencherEmails } from './helpers/preencherEmails.js'
-import { aplicarPoliticasFinais } from './helpers/aplicarPoliticasFinais.js'
+import fs from 'fs'
+import { processFiles } from './processController.js'
+import { getLogs, resetLogs } from './helpers/logger.js'
 
-export async function processFiles(conferenciaPath, matrizPath, outputPath = './output/resultado.xlsm') {
+const app = express()
+const upload = multer({ dest: 'uploads/' })
+app.use(cors())
+
+// Upload e processamento
+app.post('/upload', upload.fields([{ name: 'conferencia' }, { name: 'matriz' }]), async (req, res) => {
   try {
-    const linhas = loadConferencia(conferenciaPath)
+    resetLogs()
 
-    const basePath = path.resolve('./src/data/Planilha BASE.xlsm')
-    const workbookBase = XLSX.readFile(basePath, { bookVBA: true })
+    const conferenciaPath = req.files['conferencia'][0].path
+    const matrizPath = req.files['matriz'][0].path
 
-    const sheet = workbookBase.Sheets['Todos os Documentos']
-    const cabecalho = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] || []
+    const resultadoPath = await processFiles(conferenciaPath, matrizPath)
 
-    atualizarTodosDocumentos(workbookBase, linhas, cabecalho)
-    preencherResponsaveis(workbookBase, matrizPath)
-    preencherEmails(workbookBase)
-
-    const sheetTodosAtualizado = workbookBase.Sheets['Todos os Documentos']
-    const dadosAtualizados = XLSX.utils.sheet_to_json(sheetTodosAtualizado, { header: 1 }).slice(1)
-
-    distribuirPorGrupo(workbookBase, dadosAtualizados)
-    aplicarPoliticasFinais(workbookBase)
-
-    let finalPath = path.resolve(outputPath)
-    if (!finalPath.toLowerCase().endsWith('.xlsm')) {
-      finalPath = finalPath.replace(/\.\w+$/, '.xlsm')
-    }
-
-    XLSX.writeFile(workbookBase, finalPath, { bookType: 'xlsm', bookVBA: true })
-
-    return finalPath
+    res.download(resultadoPath, 'resultado.xlsm', (err) => {
+      if (err) console.error('Erro ao enviar o arquivo:', err)
+      // limpa arquivos temporários depois de enviar
+      fs.unlinkSync(conferenciaPath)
+      fs.unlinkSync(matrizPath)
+    })
   } catch (err) {
-    throw err
+    console.error('Erro no processamento:', err)
+    res.status(500).json({ error: 'Erro ao processar as planilhas.' })
   }
-}
+})
+
+// Logs para exibição no frontend
+app.get('/logs', (req, res) => {
+  res.json({ logs: getLogs() })
+})
+
+const PORT = 3001
+app.listen(PORT, () => {
+  console.log(`✅ Backend rodando em http://localhost:${PORT}`)
+})

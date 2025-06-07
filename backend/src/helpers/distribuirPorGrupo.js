@@ -17,13 +17,27 @@ export function distribuirPorGrupo(workbookBase, linhasTransformadas) {
 
     const existente = XLSX.utils.sheet_to_json(aba, { header: 1 })
     const cabecalho = existente[0] || []
+    const colCount = cabecalho.length
 
-    const novas = linhasGrupo.map(linha => {
-      const nova = new Array(cabecalho.length).fill('')
-      for (let i = 0; i < 10 && i < cabecalho.length; i++) nova[i] = linha[i]
-      return nova
+    // Limpa dados existentes (mantém cabeçalho)
+    for (let r = 1; r < 1000; r++) {
+      for (let c = 0; c < colCount; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c })
+        delete aba[addr]
+      }
+    }
+
+    // Insere novas linhas
+    linhasGrupo.forEach((linha, idx) => {
+      for (let i = 0; i < 10 && i < colCount; i++) {
+        const addr = XLSX.utils.encode_cell({ r: idx + 1, c: i })
+        aba[addr] = { t: 's', v: linha[i] || '' }
+      }
     })
 
-    workbookBase.Sheets[nomeAba] = XLSX.utils.aoa_to_sheet([cabecalho, ...novas])
+    aba['!ref'] = XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: linhasGrupo.length + 1, c: colCount - 1 }
+    })
   }
 }
